@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	model "github.com/bomly-dev/bomly-sdk"
+	"github.com/bomly-dev/bomly-sdk/testkit"
 )
 
 type fakeRunner struct {
@@ -55,15 +56,15 @@ func newSeed() (*model.Graph, *model.PackageRegistry) {
 
 // addJVMDep adds a Maven dependency node + (when vulns supplied) a registry
 // package keyed by the dependency PURL carrying those vulnerabilities.
-func addJVMDep(t *testing.T, g *model.Graph, reg *model.PackageRegistry, projectDir, group, artifact, version string, vulns ...model.Vulnerability) *model.Dependency {
+func addJVMDep(t *testing.T, g *model.Graph, reg *model.PackageRegistry, projectDir, group, artifact, version string, vulns ...model.Vulnerability) *model.DependencyNode {
 	t.Helper()
-	dep := model.NewDependency(model.Dependency{Coordinates: model.Coordinates{Name: artifact,
+	dep := testkit.MustDependencyCoords(t, model.Coordinates{Name: artifact,
 		Org:            group,
 		Version:        version,
 		Ecosystem:      model.EcosystemMaven,
-		PackageManager: "maven"}, Locations: []model.PackageLocation{{RealPath: filepath.Join(projectDir, "pom.xml")}},
-	})
-	purl := model.CanonicalPackageURLFromDependency(dep)
+		PackageManager: "maven"})
+	dep.Locations = []model.PackageLocation{{RealPath: filepath.Join(projectDir, "pom.xml")}}
+	purl := dep.NodeID()
 	dep.PackageRef = purl
 	if err := g.AddNode(dep); err != nil {
 		t.Fatal(err)
@@ -73,7 +74,7 @@ func addJVMDep(t *testing.T, g *model.Graph, reg *model.PackageRegistry, project
 	return dep
 }
 
-func reachOf(t *testing.T, reg *model.PackageRegistry, dep *model.Dependency) *model.Reachability {
+func reachOf(t *testing.T, reg *model.PackageRegistry, dep *model.DependencyNode) *model.Reachability {
 	t.Helper()
 	pkg, ok := reg.Get(dep.PackageRef)
 	if !ok || pkg == nil || len(pkg.Vulnerabilities) == 0 {
@@ -164,7 +165,7 @@ func TestAnalyzerMarksTransitiveDepReachable(t *testing.T) {
 		model.Vulnerability{ID: "GHSA-direct", Source: "osv", ParsedSeverity: "high"})
 	trans := addJVMDep(t, g, reg, projectDir, "com.fasterxml.jackson.core", "jackson-core", "2.17.0",
 		model.Vulnerability{ID: "GHSA-trans", Source: "osv", ParsedSeverity: "high"})
-	if err := g.AddEdge(direct.ID, trans.ID); err != nil {
+	if err := g.AddEdge(direct.NodeID(), trans.NodeID()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,7 +183,7 @@ func TestAnalyzerMarksTransitiveDepReachable(t *testing.T) {
 	if _, err := a.Analyze(context.Background(), model.AnalyzeRequest{Graph: g, Registry: reg, ProjectPath: projectDir}); err != nil {
 		t.Fatal(err)
 	}
-	for _, dep := range []*model.Dependency{direct, trans} {
+	for _, dep := range []*model.DependencyNode{direct, trans} {
 		r := reachOf(t, reg, dep)
 		if r == nil || r.Status != model.ReachabilityReachable {
 			t.Errorf("%s:%s: status = %v, want reachable", dep.Org, dep.Name, r)
@@ -192,25 +193,25 @@ func TestAnalyzerMarksTransitiveDepReachable(t *testing.T) {
 
 func TestComputeReachablePackageHopsHandlesCycles(t *testing.T) {
 	g := model.New()
-	a := model.NewDependency(model.Dependency{Coordinates: model.Coordinates{Name: "a", Org: "g", Version: "1", Ecosystem: model.EcosystemMaven}})
-	b := model.NewDependency(model.Dependency{Coordinates: model.Coordinates{Name: "b", Org: "g", Version: "1", Ecosystem: model.EcosystemMaven}})
+	a := testkit.MustDependencyCoords(t, model.Coordinates{Name: "a", Org: "g", Version: "1", Ecosystem: model.EcosystemMaven})
+	b := testkit.MustDependencyCoords(t, model.Coordinates{Name: "b", Org: "g", Version: "1", Ecosystem: model.EcosystemMaven})
 	if err := g.AddNode(a); err != nil {
 		t.Fatal(err)
 	}
 	if err := g.AddNode(b); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.AddEdge(a.ID, b.ID); err != nil {
+	if err := g.AddEdge(a.NodeID(), b.NodeID()); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.AddEdge(b.ID, a.ID); err != nil {
+	if err := g.AddEdge(b.NodeID(), a.NodeID()); err != nil {
 		t.Fatal(err)
 	}
 	got := computeReachablePackageHops(g, map[string]struct{}{"g:a": {}})
-	if h, ok := got[a.ID]; !ok || h != 0 {
+	if h, ok := got[a.NodeID()]; !ok || h != 0 {
 		t.Errorf("expected a at hop 0: got=%v ok=%v", h, ok)
 	}
-	if h, ok := got[b.ID]; !ok || h != 1 {
+	if h, ok := got[b.NodeID()]; !ok || h != 1 {
 		t.Errorf("expected b at hop 1 (transitive of a): got=%v ok=%v", h, ok)
 	}
 }
@@ -219,8 +220,8 @@ func TestAnalyzerApplicableRequiresJVMVulns(t *testing.T) {
 	a := Analyzer{}
 
 	g, reg := newSeed()
-	pyDep := model.NewDependency(model.Dependency{Coordinates: model.Coordinates{Name: "requests", Ecosystem: model.EcosystemPython}})
-	pyDep.PackageRef = model.CanonicalPackageURLFromDependency(pyDep)
+	pyDep := testkit.MustDependencyCoords(t, model.Coordinates{Name: "requests", Ecosystem: model.EcosystemPython})
+	pyDep.PackageRef = pyDep.NodeID()
 	_ = g.AddNode(pyDep)
 	reg.Ensure(pyDep.PackageRef).Vulnerabilities = []model.Vulnerability{{ID: "x"}}
 	if ok, _ := a.Applicable(context.Background(), model.AnalyzeRequest{Graph: g, Registry: reg}); ok {
