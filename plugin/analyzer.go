@@ -112,6 +112,7 @@ func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.
 
 	overallStart := time.Now()
 	hierarchies := discoverModuleHierarchies(req)
+	attributor := newRootAttributor(req.Graph, moduleHierarchyRoots(hierarchies))
 	if len(hierarchies) == 0 {
 		logger.Info("jvmreach: no JVM project roots discovered; marking all JVM vulnerabilities as unknown")
 		annotateAllUnknown(req, "no-project-root-discovered", time.Now())
@@ -135,7 +136,7 @@ func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.
 		case <-ctx.Done():
 			logger.Info("jvmreach: context cancelled; skipping project",
 				zap.String("project_root", root))
-			annotateProjectUnknown(req, root, "cancelled", time.Now())
+			annotateProjectUnknown(req, attributor, root, "cancelled", time.Now())
 			continue
 		default:
 		}
@@ -146,10 +147,10 @@ func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.
 		cacheMisses += misses
 		var applied applyOutcome
 		if closure.incomplete {
-			added := annotateProjectUnknown(req, root, closure.reason, time.Now())
+			added := annotateProjectUnknown(req, attributor, root, closure.reason, time.Now())
 			applied.unknown += added
 		} else {
-			applied = applyImportedArtifactSeeds(req, root, closure.importedArtifacts, closure.dynamicImports, time.Now())
+			applied = applyImportedArtifactSeeds(req, attributor, root, closure.importedArtifacts, closure.dynamicImports, time.Now())
 		}
 		stats.Reachable += applied.reachable
 		stats.Unreachable += applied.unreachable
@@ -396,11 +397,11 @@ type applyOutcome struct{ reachable, unreachable, unknown int }
 // package is attributable to projectRoot. A package is "reachable"
 // iff its `groupId:artifactId` is in the transitive closure of the
 // runner's imported-artifact set, expanded through Graph.Dependencies.
-func applyRunnerResult(req model.AnalyzeRequest, projectRoot string, runRes RunnerResult, now time.Time) applyOutcome {
-	return applyImportedArtifactSeeds(req, projectRoot, artifactSeedDepths(runRes.ImportedArtifacts, 0), runRes.DynamicImportsDetected, now)
+func applyRunnerResult(req model.AnalyzeRequest, attributor rootAttributor, projectRoot string, runRes RunnerResult, now time.Time) applyOutcome {
+	return applyImportedArtifactSeeds(req, attributor, projectRoot, artifactSeedDepths(runRes.ImportedArtifacts, 0), runRes.DynamicImportsDetected, now)
 }
 
-func applyImportedArtifactSeeds(req model.AnalyzeRequest, projectRoot string, imports map[string]int, dynamicImports bool, now time.Time) applyOutcome {
+func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor rootAttributor, projectRoot string, imports map[string]int, dynamicImports bool, now time.Time) applyOutcome {
 	var outcome applyOutcome
 	if req.Graph == nil {
 		return outcome
@@ -411,7 +412,7 @@ func applyImportedArtifactSeeds(req model.AnalyzeRequest, projectRoot string, im
 		if pkg == nil || !isJVMPackage(pkg) {
 			continue
 		}
-		if !packageBelongsToProjectRoot(pkg, projectRoot) {
+		if attributor.attribute(pkg, projectRoot) == attributedElsewhere {
 			continue
 		}
 		vulns := vulnerabilitiesForDep(req, pkg)
@@ -422,9 +423,22 @@ func applyImportedArtifactSeeds(req model.AnalyzeRequest, projectRoot string, im
 			// package the first does not, and the first answer stood. Each
 			// project root now contributes evidence and the annotation is
 			// the derived summary over all of them.
+			// No DependencyRefs. Row 2.8 makes the module root the
+			// mandatory attribution floor and node references the optional
+			// ceiling, "only where genuinely attributable" -- and jvmreach
+			// cannot attribute below the root. Its seed set is keyed by
+			// "group:artifact" with the classifier stripped
+			// (isPackageImported over baseArtifactName), so it does not
+			// separate two versions of one coordinate, and it deliberately
+			// collapses classifier variants such as "jackson-databind" and
+			// "jackson-databind:tests" into one key. Those are distinct graph
+			// nodes this analysis decides together, so naming one of them as
+			// the occurrence would publish a precision that was never
+			// established. Empty refs mean "not stated", never "no
+			// occurrence". This becomes attributable if the seed match ever
+			// keys on version and classifier.
 			r := &model.ReachabilityEvidence{
 				ModuleRoot:             projectRoot,
-				DependencyRefs:         []string{pkg.NodeID()},
 				Analyzer:               Name,
 				AnalyzedAt:             timestamp,
 				Tier:                   model.TierPackage,
@@ -544,7 +558,17 @@ func baseArtifactName(name string) string {
 	return name
 }
 
-func annotateProjectUnknown(req model.AnalyzeRequest, projectRoot, reason string, now time.Time) int {
+// annotateProjectUnknown records that one project root could not be analyzed.
+//
+// It deliberately does not skip a vulnerability another root already
+// annotated. That skip was the same first-root-wins loss phase 2.8 removes,
+// left standing in the failure path: with roots A and B, A succeeding with
+// "unreachable" and B failing to resolve its build, the skip dropped B
+// entirely and the summary read "unreachable" for a workspace half of which
+// was never looked at. DeriveReachability requires every root to say
+// unreachable, so B's unknown is exactly what keeps the aggregate honest --
+// but only if it is recorded.
+func annotateProjectUnknown(req model.AnalyzeRequest, attributor rootAttributor, projectRoot, reason string, now time.Time) int {
 	if req.Graph == nil {
 		return 0
 	}
@@ -554,21 +578,19 @@ func annotateProjectUnknown(req model.AnalyzeRequest, projectRoot, reason string
 		if pkg == nil || !isJVMPackage(pkg) {
 			continue
 		}
-		if !packageBelongsToProjectRoot(pkg, projectRoot) {
+		if attributor.attribute(pkg, projectRoot) == attributedElsewhere {
 			continue
 		}
 		vulns := vulnerabilitiesForDep(req, pkg)
 		for i := range vulns {
-			if vulns[i].Reachability != nil {
-				continue
-			}
-			vulns[i].Reachability = &model.Reachability{
+			vulns[i].Reachability = withEvidence(vulns[i].Reachability, model.ReachabilityEvidence{
+				ModuleRoot: projectRoot,
 				Analyzer:   Name,
 				Status:     model.ReachabilityUnknown,
 				Tier:       model.TierNone,
 				Reason:     reason,
 				AnalyzedAt: timestamp,
-			}
+			}, timestamp)
 			count++
 		}
 	}
@@ -586,36 +608,19 @@ func annotateAllUnknown(req model.AnalyzeRequest, reason string, now time.Time) 
 		}
 		vulns := vulnerabilitiesForDep(req, pkg)
 		for i := range vulns {
-			if vulns[i].Reachability != nil {
-				continue
-			}
-			vulns[i].Reachability = &model.Reachability{
+			// One evidence record with no module root, which the SDK reads as
+			// a whole-scan claim covering every site. A bare annotation would
+			// leave consumers unable to tell an empty evidence list meaning
+			// "nothing was recorded" from one meaning "no root was found".
+			vulns[i].Reachability = withEvidence(vulns[i].Reachability, model.ReachabilityEvidence{
 				Analyzer:   Name,
 				Status:     model.ReachabilityUnknown,
 				Tier:       model.TierNone,
 				Reason:     reason,
 				AnalyzedAt: timestamp,
-			}
+			}, timestamp)
 		}
 	}
-}
-
-func packageBelongsToProjectRoot(pkg *model.DependencyNode, projectRoot string) bool {
-	if pkg == nil {
-		return false
-	}
-	if len(pkg.Locations) == 0 {
-		return true
-	}
-	for _, loc := range pkg.Locations {
-		if loc.RealPath == "" {
-			continue
-		}
-		if pathContainsRoot(loc.RealPath, projectRoot) {
-			return true
-		}
-	}
-	return true
 }
 
 func pathContainsRoot(path, root string) bool {
