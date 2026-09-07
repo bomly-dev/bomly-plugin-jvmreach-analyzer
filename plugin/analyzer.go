@@ -112,7 +112,7 @@ func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.
 
 	overallStart := time.Now()
 	hierarchies := discoverModuleHierarchies(req)
-	attributor := newRootAttributor(req.Graph, moduleHierarchyRoots(hierarchies))
+	attributor := model.NewRootAttributor(moduleHierarchyRoots(hierarchies), req.Graph)
 	if len(hierarchies) == 0 {
 		logger.Info("jvmreach: no JVM project roots discovered; marking all JVM vulnerabilities as unknown")
 		annotateAllUnknown(req, "no-project-root-discovered", time.Now())
@@ -397,11 +397,11 @@ type applyOutcome struct{ reachable, unreachable, unknown int }
 // package is attributable to projectRoot. A package is "reachable"
 // iff its `groupId:artifactId` is in the transitive closure of the
 // runner's imported-artifact set, expanded through Graph.Dependencies.
-func applyRunnerResult(req model.AnalyzeRequest, attributor rootAttributor, projectRoot string, runRes RunnerResult, now time.Time) applyOutcome {
+func applyRunnerResult(req model.AnalyzeRequest, attributor model.RootAttributor, projectRoot string, runRes RunnerResult, now time.Time) applyOutcome {
 	return applyImportedArtifactSeeds(req, attributor, projectRoot, artifactSeedDepths(runRes.ImportedArtifacts, 0), runRes.DynamicImportsDetected, now)
 }
 
-func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor rootAttributor, projectRoot string, imports map[string]int, dynamicImports bool, now time.Time) applyOutcome {
+func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor model.RootAttributor, projectRoot string, imports map[string]int, dynamicImports bool, now time.Time) applyOutcome {
 	var outcome applyOutcome
 	if req.Graph == nil {
 		return outcome
@@ -412,7 +412,7 @@ func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor rootAttribu
 		if pkg == nil || !isJVMPackage(pkg) {
 			continue
 		}
-		if attributor.attribute(pkg, projectRoot) == attributedElsewhere {
+		if attributor.Attribute(pkg, projectRoot) == model.AttributedElsewhere {
 			continue
 		}
 		vulns := vulnerabilitiesForDep(req, pkg)
@@ -568,7 +568,7 @@ func baseArtifactName(name string) string {
 // was never looked at. DeriveReachability requires every root to say
 // unreachable, so B's unknown is exactly what keeps the aggregate honest --
 // but only if it is recorded.
-func annotateProjectUnknown(req model.AnalyzeRequest, attributor rootAttributor, projectRoot, reason string, now time.Time) int {
+func annotateProjectUnknown(req model.AnalyzeRequest, attributor model.RootAttributor, projectRoot, reason string, now time.Time) int {
 	if req.Graph == nil {
 		return 0
 	}
@@ -578,7 +578,7 @@ func annotateProjectUnknown(req model.AnalyzeRequest, attributor rootAttributor,
 		if pkg == nil || !isJVMPackage(pkg) {
 			continue
 		}
-		if attributor.attribute(pkg, projectRoot) == attributedElsewhere {
+		if attributor.Attribute(pkg, projectRoot) == model.AttributedElsewhere {
 			continue
 		}
 		vulns := vulnerabilitiesForDep(req, pkg)
@@ -623,6 +623,10 @@ func annotateAllUnknown(req model.AnalyzeRequest, reason string, now time.Time) 
 	}
 }
 
+// pathContainsRoot reports whether path lies under root. Its only remaining
+// callers are in discover.go: attribution asks the SDK's RootAttributor this
+// question now, so do not reach for this helper to decide what a site says
+// about a module root.
 func pathContainsRoot(path, root string) bool {
 	cleanPath := filepath.Clean(path)
 	cleanRoot := filepath.Clean(root)

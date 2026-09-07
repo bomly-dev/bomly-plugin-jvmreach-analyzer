@@ -77,7 +77,7 @@ func TestJVMStandaloneApplyRunnerResult(t *testing.T) {
 	reg.Ensure(purl).Vulnerabilities = []model.Vulnerability{{ID: "GHSA-1"}}
 	req := model.AnalyzeRequest{Graph: g, Registry: reg}
 	root := jvmProjectFixture("dynamic")
-	got := applyRunnerResult(req, newRootAttributor(g, []string{root}), root, RunnerResult{
+	got := applyRunnerResult(req, model.NewRootAttributor([]string{root}, g), root, RunnerResult{
 		ImportedArtifacts: map[string]struct{}{"com.fasterxml.jackson.core:jackson-databind": {}},
 		SourceFiles:       1,
 	}, time.Time{})
