@@ -3,6 +3,7 @@ package plugin
 import (
 	"bufio"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -199,8 +200,8 @@ func parseImportLine(operand string) []string {
 	// Trailing wildcard `.*` or `._` => keep everything before the
 	// wildcard (Scala uses `_`, Java/Kotlin use `*`).
 	for _, suffix := range []string{".*", "._"} {
-		if strings.HasSuffix(operand, suffix) {
-			return []string{strings.TrimSuffix(operand, suffix)}
+		if before, ok := strings.CutSuffix(operand, suffix); ok {
+			return []string{before}
 		}
 	}
 	// Plain `import a.b.c.Class` form. Keep the full path. For
@@ -246,7 +247,7 @@ func isDotIdent(s string) bool {
 	if s == "" {
 		return false
 	}
-	for _, part := range strings.Split(s, ".") {
+	for part := range strings.SplitSeq(s, ".") {
 		if !isIdentLike(part) {
 			return false
 		}
@@ -255,10 +256,8 @@ func isDotIdent(s string) bool {
 }
 
 func appendUnique(out []string, v string) []string {
-	for _, x := range out {
-		if x == v {
-			return out
-		}
+	if slices.Contains(out, v) {
+		return out
 	}
 	return append(out, v)
 }
