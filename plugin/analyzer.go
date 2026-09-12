@@ -552,8 +552,8 @@ func isPackageImported(pkg *model.DependencyNode, imports map[string]int) bool {
 // "jackson-databind:tests"). The reachability map keys on bare
 // artifact IDs.
 func baseArtifactName(name string) string {
-	if i := strings.Index(name, ":"); i >= 0 {
-		return name[:i]
+	if before, _, ok := strings.Cut(name, ":"); ok {
+		return before
 	}
 	return name
 }
