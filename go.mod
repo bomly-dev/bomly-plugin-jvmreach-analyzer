@@ -3,7 +3,7 @@ module github.com/bomly-dev/bomly-plugin-jvmreach-analyzer
 go 1.27.0
 
 require (
-	github.com/bomly-dev/bomly-sdk v0.9.7
+	github.com/bomly-dev/bomly-sdk v0.10.0
 	go.uber.org/zap v1.28.0
 )
 
