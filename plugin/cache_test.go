@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	model "github.com/bomly-dev/bomly-sdk"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+
+	sdkmodel "github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 func TestResultCacheRoundTrip(t *testing.T) {
@@ -62,7 +64,7 @@ func TestResultCacheInvalidatesOnBuildFileChange(t *testing.T) {
 
 func TestAnalyzerWithCacheServesSecondCallFromCache(t *testing.T) {
 	projectDir := newJVMProjectDir(t)
-	vuln := model.Vulnerability{ID: "GHSA-test", Source: "osv", ParsedSeverity: "high"}
+	vuln := sdkmodel.Vulnerability{ID: "GHSA-test", Source: "osv", ParsedSeverity: "high"}
 	g, reg := newSeed()
 	addJVMDep(t, g, reg, projectDir, "com.fasterxml.jackson.core", "jackson-databind", "1.0.0", vuln)
 	runner := &fakeRunner{
@@ -72,7 +74,7 @@ func TestAnalyzerWithCacheServesSecondCallFromCache(t *testing.T) {
 		},
 	}
 	a := Analyzer{Runner: runner, CacheDir: t.TempDir()}
-	if _, err := a.Analyze(context.Background(), model.AnalyzeRequest{Graph: g, Registry: reg, ProjectPath: projectDir}); err != nil {
+	if _, err := a.Analyze(context.Background(), sdkplugin.AnalyzeRequest{Graph: g, Registry: reg, ProjectPath: projectDir}); err != nil {
 		t.Fatal(err)
 	}
 	if runner.called != 1 {
@@ -80,14 +82,14 @@ func TestAnalyzerWithCacheServesSecondCallFromCache(t *testing.T) {
 	}
 	g2, reg2 := newSeed()
 	dep2 := addJVMDep(t, g2, reg2, projectDir, "com.fasterxml.jackson.core", "jackson-databind", "1.0.0", vuln)
-	if _, err := a.Analyze(context.Background(), model.AnalyzeRequest{Graph: g2, Registry: reg2, ProjectPath: projectDir}); err != nil {
+	if _, err := a.Analyze(context.Background(), sdkplugin.AnalyzeRequest{Graph: g2, Registry: reg2, ProjectPath: projectDir}); err != nil {
 		t.Fatal(err)
 	}
 	if runner.called != 1 {
 		t.Errorf("second Analyze should hit cache; runner.called = %d, want 1", runner.called)
 	}
 	r := reachOf(t, reg2, dep2)
-	if r == nil || r.Status != model.ReachabilityReachable {
+	if r == nil || r.Status != sdkmodel.ReachabilityReachable {
 		t.Errorf("cached path did not produce a reachable annotation: %+v", r)
 	}
 }

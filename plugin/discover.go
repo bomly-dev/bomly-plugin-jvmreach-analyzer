@@ -8,9 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	model "github.com/bomly-dev/bomly-sdk"
-
 	"github.com/bomly-dev/bomly-sdk/system"
+
+	sdkmodel "github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 type jvmModule struct {
@@ -44,7 +45,7 @@ var (
 )
 
 // discoverProjectRoots returns the root of each JVM project hierarchy.
-func discoverProjectRoots(req model.AnalyzeRequest) []string {
+func discoverProjectRoots(req sdkplugin.AnalyzeRequest) []string {
 	hierarchies := discoverModuleHierarchies(req)
 	roots := make([]string, 0, len(hierarchies))
 	for _, hierarchy := range hierarchies {
@@ -53,7 +54,7 @@ func discoverProjectRoots(req model.AnalyzeRequest) []string {
 	return roots
 }
 
-func discoverModuleHierarchies(req model.AnalyzeRequest) []moduleHierarchy {
+func discoverModuleHierarchies(req sdkplugin.AnalyzeRequest) []moduleHierarchy {
 	projectRoots := discoverStandaloneProjectRoots(req)
 	seen := make(map[string]struct{})
 	hierarchies := make([]moduleHierarchy, 0, len(projectRoots))
@@ -81,7 +82,7 @@ func discoverModuleHierarchies(req model.AnalyzeRequest) []moduleHierarchy {
 	return hierarchies
 }
 
-func discoverStandaloneProjectRoots(req model.AnalyzeRequest) []string {
+func discoverStandaloneProjectRoots(req sdkplugin.AnalyzeRequest) []string {
 	seen := make(map[string]struct{})
 	var roots []string
 	add := func(dir string) {
@@ -340,20 +341,20 @@ func findProjectRoot(start string) string {
 }
 
 // isJVMPackage reports whether pkg's ecosystem, build system, or language identifies it as JVM.
-func isJVMPackage(pkg *model.DependencyNode) bool {
+func isJVMPackage(pkg *sdkmodel.DependencyNode) bool {
 	if pkg == nil {
 		return false
 	}
 	switch pkg.Ecosystem {
-	case model.EcosystemMaven, model.EcosystemScala:
+	case sdkmodel.EcosystemMaven, sdkmodel.EcosystemScala:
 		return true
 	}
 	switch pkg.PackageManager {
-	case model.PackageManagerMaven, model.PackageManagerGradle, model.PackageManagerSBT:
+	case sdkmodel.PackageManagerMaven, sdkmodel.PackageManagerGradle, sdkmodel.PackageManagerSBT:
 		return true
 	}
 	switch pkg.Language {
-	case model.LanguageJava, model.LanguageKotlin, model.LanguageScala, model.LanguageGroovy:
+	case sdkmodel.LanguageJava, sdkmodel.LanguageKotlin, sdkmodel.LanguageScala, sdkmodel.LanguageGroovy:
 		return true
 	}
 	return false

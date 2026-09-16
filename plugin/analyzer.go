@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
-	model "github.com/bomly-dev/bomly-sdk"
 	"go.uber.org/zap"
+
+	sdkmodel "github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 // Name is the analyzer's stable identifier (used in selectors and output).
@@ -36,29 +38,29 @@ type Analyzer struct {
 }
 
 // Descriptor returns the registration metadata for the jvmreach analyzer.
-func (a Analyzer) Descriptor() model.AnalyzerDescriptor {
-	return model.AnalyzerDescriptor{
+func (a Analyzer) Descriptor() sdkplugin.AnalyzerDescriptor {
+	return sdkplugin.AnalyzerDescriptor{
 		Name:                Name,
-		SupportedEcosystems: []model.Ecosystem{model.EcosystemMaven, model.EcosystemScala},
-		SupportedManagers: []model.PackageManager{
-			model.PackageManagerMaven,
-			model.PackageManagerGradle,
-			model.PackageManagerSBT,
+		SupportedEcosystems: []sdkmodel.Ecosystem{sdkmodel.EcosystemMaven, sdkmodel.EcosystemScala},
+		SupportedManagers: []sdkmodel.PackageManager{
+			sdkmodel.PackageManagerMaven,
+			sdkmodel.PackageManagerGradle,
+			sdkmodel.PackageManagerSBT,
 		},
-		SupportedLanguages: []model.Language{
-			model.LanguageJava,
-			model.LanguageKotlin,
-			model.LanguageScala,
-			model.LanguageGroovy,
+		SupportedLanguages: []sdkmodel.Language{
+			sdkmodel.LanguageJava,
+			sdkmodel.LanguageKotlin,
+			sdkmodel.LanguageScala,
+			sdkmodel.LanguageGroovy,
 		},
-		SupportedTiers: []model.ReachabilityTier{model.TierPackage},
-		Capabilities:   []string{model.CapabilityPackageUpdates},
+		SupportedTiers: []sdkmodel.ReachabilityTier{sdkmodel.TierPackage},
+		Capabilities:   []string{sdkplugin.CapabilityPackageUpdates},
 	}
 }
 
-func (a Analyzer) Ready(context.Context, model.AnalyzeRequest) error { return nil }
+func (a Analyzer) Ready(context.Context, sdkplugin.AnalyzeRequest) error { return nil }
 
-func (a Analyzer) Applicable(_ context.Context, req model.AnalyzeRequest) (bool, error) {
+func (a Analyzer) Applicable(_ context.Context, req sdkplugin.AnalyzeRequest) (bool, error) {
 	if req.Graph == nil || req.Registry == nil {
 		return false, nil
 	}
@@ -76,7 +78,7 @@ func (a Analyzer) Applicable(_ context.Context, req model.AnalyzeRequest) (bool,
 }
 
 // dependencyPURL returns the registry key for a dependency node.
-func dependencyPURL(dep *model.DependencyNode) string {
+func dependencyPURL(dep *sdkmodel.DependencyNode) string {
 	if dep == nil {
 		return ""
 	}
@@ -89,7 +91,7 @@ func dependencyPURL(dep *model.DependencyNode) string {
 // vulnerabilitiesForDep returns the registry slice for a dependency. The
 // caller may mutate the returned slice in place; entries live on the
 // shared backing array owned by the registry package.
-func vulnerabilitiesForDep(req model.AnalyzeRequest, dep *model.DependencyNode) []model.Vulnerability {
+func vulnerabilitiesForDep(req sdkplugin.AnalyzeRequest, dep *sdkmodel.DependencyNode) []sdkmodel.Vulnerability {
 	if req.Registry == nil || dep == nil {
 		return nil
 	}
@@ -100,10 +102,10 @@ func vulnerabilitiesForDep(req model.AnalyzeRequest, dep *model.DependencyNode) 
 	return pkg.Vulnerabilities
 }
 
-func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.AnalyzeResult, error) {
+func (a Analyzer) Analyze(ctx context.Context, req sdkplugin.AnalyzeRequest) (sdkplugin.AnalyzeResult, error) {
 	logger := a.logger()
 	if req.Graph == nil {
-		return model.AnalyzeResult{}, nil
+		return sdkplugin.AnalyzeResult{}, nil
 	}
 	runner := a.Runner
 	if runner == nil {
@@ -112,7 +114,7 @@ func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.
 
 	overallStart := time.Now()
 	hierarchies := discoverModuleHierarchies(req)
-	attributor := model.NewRootAttributor(moduleHierarchyRoots(hierarchies), req.Graph)
+	attributor := sdkmodel.NewRootAttributor(moduleHierarchyRoots(hierarchies), req.Graph)
 	if len(hierarchies) == 0 {
 		logger.Info("jvmreach: no JVM project roots discovered; marking all JVM vulnerabilities as unknown")
 		annotateAllUnknown(req, "no-project-root-discovered", time.Now())
@@ -128,7 +130,7 @@ func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.
 	logger.Debug("jvmreach: discovered module hierarchies", zap.Strings("paths", moduleHierarchyRoots(hierarchies)))
 
 	cache := a.cache()
-	stats := model.ReachabilityStats{}
+	stats := sdkplugin.ReachabilityStats{}
 	cacheHits, cacheMisses := 0, 0
 	for _, hierarchy := range hierarchies {
 		root := hierarchy.Root
@@ -180,7 +182,7 @@ func (a Analyzer) Analyze(ctx context.Context, req model.AnalyzeRequest) (model.
 	)
 
 	out := resultFromRequest(req)
-	out.AnalyzerStats = map[string]model.ReachabilityStats{Name: stats}
+	out.AnalyzerStats = map[string]sdkplugin.ReachabilityStats{Name: stats}
 	return finishResult(req, out), nil
 }
 
@@ -387,8 +389,8 @@ func (a Analyzer) cache() *resultCache {
 	return newResultCache(a.CacheDir, a.CacheTTL, a.logger())
 }
 
-func resultFromRequest(req model.AnalyzeRequest) model.AnalyzeResult {
-	return model.AnalyzeResult{Registry: req.Registry, AnalyzerRuns: []string{Name}}
+func resultFromRequest(req sdkplugin.AnalyzeRequest) sdkplugin.AnalyzeResult {
+	return sdkplugin.AnalyzeResult{Registry: req.Registry, AnalyzerRuns: []string{Name}}
 }
 
 type applyOutcome struct{ reachable, unreachable, unknown int }
@@ -397,11 +399,11 @@ type applyOutcome struct{ reachable, unreachable, unknown int }
 // package is attributable to projectRoot. A package is "reachable"
 // iff its `groupId:artifactId` is in the transitive closure of the
 // runner's imported-artifact set, expanded through Graph.Dependencies.
-func applyRunnerResult(req model.AnalyzeRequest, attributor model.RootAttributor, projectRoot string, runRes RunnerResult, now time.Time) applyOutcome {
+func applyRunnerResult(req sdkplugin.AnalyzeRequest, attributor sdkmodel.RootAttributor, projectRoot string, runRes RunnerResult, now time.Time) applyOutcome {
 	return applyImportedArtifactSeeds(req, attributor, projectRoot, artifactSeedDepths(runRes.ImportedArtifacts, 0), runRes.DynamicImportsDetected, now)
 }
 
-func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor model.RootAttributor, projectRoot string, imports map[string]int, dynamicImports bool, now time.Time) applyOutcome {
+func applyImportedArtifactSeeds(req sdkplugin.AnalyzeRequest, attributor sdkmodel.RootAttributor, projectRoot string, imports map[string]int, dynamicImports bool, now time.Time) applyOutcome {
 	var outcome applyOutcome
 	if req.Graph == nil {
 		return outcome
@@ -412,7 +414,7 @@ func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor model.RootA
 		if pkg == nil || !isJVMPackage(pkg) {
 			continue
 		}
-		if attributor.Attribute(pkg, projectRoot) == model.AttributedElsewhere {
+		if attributor.Attribute(pkg, projectRoot) == sdkmodel.AttributedElsewhere {
 			continue
 		}
 		vulns := vulnerabilitiesForDep(req, pkg)
@@ -437,21 +439,21 @@ func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor model.RootA
 			// established. Empty refs mean "not stated", never "no
 			// occurrence". This becomes attributable if the seed match ever
 			// keys on version and classifier.
-			r := &model.ReachabilityEvidence{
+			r := &sdkmodel.ReachabilityEvidence{
 				ModuleRoot:             projectRoot,
 				Analyzer:               Name,
 				AnalyzedAt:             timestamp,
-				Tier:                   model.TierPackage,
+				Tier:                   sdkmodel.TierPackage,
 				DynamicImportsDetected: dynamicImports,
 			}
 			if hops, ok := hopsByID[pkg.NodeID()]; ok {
-				r.Status = model.ReachabilityReachable
+				r.Status = sdkmodel.ReachabilityReachable
 				h := hops
 				r.Hops = &h
-				r.Confidence = model.DeriveConfidence(&h, dynamicImports)
+				r.Confidence = sdkmodel.DeriveConfidence(&h, dynamicImports)
 				outcome.reachable++
 			} else {
-				r.Status = model.ReachabilityUnreachable
+				r.Status = sdkmodel.ReachabilityUnreachable
 				r.Reason = "package-not-imported"
 				outcome.unreachable++
 			}
@@ -467,13 +469,13 @@ func applyImportedArtifactSeeds(req model.AnalyzeRequest, attributor model.RootA
 // The summary is derived, never accumulated by hand: reachable anywhere wins,
 // and unreachable requires every root to say so. Writing that rule at each
 // call site is how the first-root-wins behaviour got there.
-func withEvidence(current *model.Reachability, evidence model.ReachabilityEvidence, timestamp string) *model.Reachability {
-	var all []model.ReachabilityEvidence
+func withEvidence(current *sdkmodel.Reachability, evidence sdkmodel.ReachabilityEvidence, timestamp string) *sdkmodel.Reachability {
+	var all []sdkmodel.ReachabilityEvidence
 	if current != nil && current.Analyzer == Name {
 		all = current.Evidence
 	}
 	all = append(all, evidence)
-	summary := model.DeriveReachability(all)
+	summary := sdkmodel.DeriveReachability(all)
 	summary.Analyzer = Name
 	summary.AnalyzedAt = timestamp
 	summary.Evidence = all
@@ -484,11 +486,11 @@ func withEvidence(current *model.Reachability, evidence model.ReachabilityEviden
 // the shortest dep-graph distance from a directly-imported artifact.
 // Hop 0 packages are directly imported by app source; hop N packages
 // are reachable only via N transitive edges.
-func computeReachablePackageHops(g *model.Graph, imports map[string]struct{}) map[string]int {
+func computeReachablePackageHops(g *sdkmodel.Graph, imports map[string]struct{}) map[string]int {
 	return computeReachablePackageHopsFromSeeds(g, artifactSeedDepths(imports, 0))
 }
 
-func computeReachablePackageHopsFromSeeds(g *model.Graph, imports map[string]int) map[string]int {
+func computeReachablePackageHopsFromSeeds(g *sdkmodel.Graph, imports map[string]int) map[string]int {
 	hops := make(map[string]int)
 	if g == nil || len(imports) == 0 {
 		return hops
@@ -529,13 +531,13 @@ func computeReachablePackageHopsFromSeeds(g *model.Graph, imports map[string]int
 	return hops
 }
 
-func importedArtifactDepth(pkg *model.DependencyNode, imports map[string]int) int {
+func importedArtifactDepth(pkg *sdkmodel.DependencyNode, imports map[string]int) int {
 	return imports[canonicalCoord(pkg.Org, baseArtifactName(pkg.Name))]
 }
 
 // isPackageImported reports whether pkg's Maven coordinate (built
 // from Org / Name) appears in the runner's import set.
-func isPackageImported(pkg *model.DependencyNode, imports map[string]int) bool {
+func isPackageImported(pkg *sdkmodel.DependencyNode, imports map[string]int) bool {
 	if pkg == nil || len(imports) == 0 {
 		return false
 	}
@@ -568,7 +570,7 @@ func baseArtifactName(name string) string {
 // was never looked at. DeriveReachability requires every root to say
 // unreachable, so B's unknown is exactly what keeps the aggregate honest --
 // but only if it is recorded.
-func annotateProjectUnknown(req model.AnalyzeRequest, attributor model.RootAttributor, projectRoot, reason string, now time.Time) int {
+func annotateProjectUnknown(req sdkplugin.AnalyzeRequest, attributor sdkmodel.RootAttributor, projectRoot, reason string, now time.Time) int {
 	if req.Graph == nil {
 		return 0
 	}
@@ -578,16 +580,16 @@ func annotateProjectUnknown(req model.AnalyzeRequest, attributor model.RootAttri
 		if pkg == nil || !isJVMPackage(pkg) {
 			continue
 		}
-		if attributor.Attribute(pkg, projectRoot) == model.AttributedElsewhere {
+		if attributor.Attribute(pkg, projectRoot) == sdkmodel.AttributedElsewhere {
 			continue
 		}
 		vulns := vulnerabilitiesForDep(req, pkg)
 		for i := range vulns {
-			vulns[i].Reachability = withEvidence(vulns[i].Reachability, model.ReachabilityEvidence{
+			vulns[i].Reachability = withEvidence(vulns[i].Reachability, sdkmodel.ReachabilityEvidence{
 				ModuleRoot: projectRoot,
 				Analyzer:   Name,
-				Status:     model.ReachabilityUnknown,
-				Tier:       model.TierNone,
+				Status:     sdkmodel.ReachabilityUnknown,
+				Tier:       sdkmodel.TierNone,
 				Reason:     reason,
 				AnalyzedAt: timestamp,
 			}, timestamp)
@@ -597,7 +599,7 @@ func annotateProjectUnknown(req model.AnalyzeRequest, attributor model.RootAttri
 	return count
 }
 
-func annotateAllUnknown(req model.AnalyzeRequest, reason string, now time.Time) {
+func annotateAllUnknown(req sdkplugin.AnalyzeRequest, reason string, now time.Time) {
 	if req.Graph == nil {
 		return
 	}
@@ -612,10 +614,10 @@ func annotateAllUnknown(req model.AnalyzeRequest, reason string, now time.Time) 
 			// a whole-scan claim covering every site. A bare annotation would
 			// leave consumers unable to tell an empty evidence list meaning
 			// "nothing was recorded" from one meaning "no root was found".
-			vulns[i].Reachability = withEvidence(vulns[i].Reachability, model.ReachabilityEvidence{
+			vulns[i].Reachability = withEvidence(vulns[i].Reachability, sdkmodel.ReachabilityEvidence{
 				Analyzer:   Name,
-				Status:     model.ReachabilityUnknown,
-				Tier:       model.TierNone,
+				Status:     sdkmodel.ReachabilityUnknown,
+				Tier:       sdkmodel.TierNone,
 				Reason:     reason,
 				AnalyzedAt: timestamp,
 			}, timestamp)
@@ -665,7 +667,7 @@ func failureReason(err error) string {
 // cannot express is replacing a Reachability annotation already written by a
 // DIFFERENT analyzer; built-in analyzer dispatch is language-disjoint, so no
 // two built-ins annotate the same package.
-func finishResult(req model.AnalyzeRequest, out model.AnalyzeResult) model.AnalyzeResult {
+func finishResult(req sdkplugin.AnalyzeRequest, out sdkplugin.AnalyzeResult) sdkplugin.AnalyzeResult {
 	if !req.AcceptPackageUpdates || req.Registry == nil {
 		return out
 	}
