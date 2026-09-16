@@ -6,8 +6,10 @@ import (
 	"reflect"
 	"testing"
 
-	model "github.com/bomly-dev/bomly-sdk"
 	"github.com/bomly-dev/bomly-sdk/conformance"
+
+	sdkmodel "github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 // TestConformance runs the SDK conformance suite against the module,
@@ -29,7 +31,7 @@ func TestModuleDescriptorMatchesAnalyzer(t *testing.T) {
 
 // clearAnalyzedAt blanks the wall-clock annotation timestamps so two runs of
 // the same analysis compare equal.
-func clearAnalyzedAt(reg *model.PackageRegistry) {
+func clearAnalyzedAt(reg *sdkmodel.PackageRegistry) {
 	for _, pkg := range reg.All() {
 		for i := range pkg.Vulnerabilities {
 			if r := pkg.Vulnerabilities[i].Reachability; r != nil {
@@ -44,12 +46,12 @@ func clearAnalyzedAt(reg *model.PackageRegistry) {
 // registry yields exactly the registry the legacy in-place path produces.
 func TestPackageUpdatesEquivalence(t *testing.T) {
 	projectDir := newJVMProjectDir(t)
-	vuln := model.Vulnerability{ID: "GHSA-test", Source: "osv", ParsedSeverity: "high"}
+	vuln := sdkmodel.Vulnerability{ID: "GHSA-test", Source: "osv", ParsedSeverity: "high"}
 	runnerResult := RunnerResult{
 		ImportedArtifacts: map[string]struct{}{"com.fasterxml.jackson.core:jackson-databind": {}},
 		SourceFiles:       1,
 	}
-	seed := func() (*model.Graph, *model.PackageRegistry) {
+	seed := func() (*sdkmodel.Graph, *sdkmodel.PackageRegistry) {
 		g, reg := newSeed()
 		addJVMDep(t, g, reg, projectDir, "com.fasterxml.jackson.core", "jackson-databind", "1.0.0", vuln)
 		addJVMDep(t, g, reg, projectDir, "log4j", "log4j", "1.0.0", vuln)
@@ -58,7 +60,7 @@ func TestPackageUpdatesEquivalence(t *testing.T) {
 
 	legacyGraph, legacyReg := seed()
 	legacy := Analyzer{DisableCache: true, Runner: &fakeRunner{result: runnerResult}}
-	legacyRes, err := legacy.Analyze(context.Background(), model.AnalyzeRequest{
+	legacyRes, err := legacy.Analyze(context.Background(), sdkplugin.AnalyzeRequest{
 		Graph: legacyGraph, Registry: legacyReg, ProjectPath: projectDir,
 	})
 	if err != nil {
@@ -73,7 +75,7 @@ func TestPackageUpdatesEquivalence(t *testing.T) {
 
 	deltaGraph, deltaReg := seed()
 	delta := Analyzer{DisableCache: true, Runner: &fakeRunner{result: runnerResult}}
-	deltaRes, err := delta.Analyze(context.Background(), model.AnalyzeRequest{
+	deltaRes, err := delta.Analyze(context.Background(), sdkplugin.AnalyzeRequest{
 		Graph: deltaGraph, Registry: deltaReg, ProjectPath: projectDir,
 		AcceptPackageUpdates: true,
 	})
@@ -88,7 +90,7 @@ func TestPackageUpdatesEquivalence(t *testing.T) {
 	}
 
 	_, pristineReg := seed()
-	merged := model.ApplyPackageUpdates(pristineReg, deltaRes.PackageUpdates)
+	merged := sdkmodel.ApplyPackageUpdates(pristineReg, deltaRes.PackageUpdates)
 
 	clearAnalyzedAt(legacyReg)
 	clearAnalyzedAt(merged)

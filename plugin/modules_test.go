@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	model "github.com/bomly-dev/bomly-sdk"
 	"github.com/bomly-dev/bomly-sdk/testkit"
+
+	sdkmodel "github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 type moduleFakeRunner struct {
@@ -40,7 +42,7 @@ func TestDiscoverModuleHierarchiesParsesMavenModules(t *testing.T) {
 	writeJVMFixture(t, root, "shared/pom.xml", `<project><artifactId>shared</artifactId></project>`)
 	writeJVMFixture(t, root, "shared/src/main/java/com/example/shared/Helper.java", "package com.example.shared;\nclass Helper {}\n")
 
-	hierarchies := discoverModuleHierarchies(model.AnalyzeRequest{ProjectPath: filepath.Join(root, "shared")})
+	hierarchies := discoverModuleHierarchies(sdkplugin.AnalyzeRequest{ProjectPath: filepath.Join(root, "shared")})
 	if len(hierarchies) != 1 || hierarchies[0].Root != root {
 		t.Fatalf("hierarchies = %+v, want root %s", hierarchies, root)
 	}
@@ -65,7 +67,7 @@ func TestDiscoverModuleHierarchiesParsesGradleIncludesAndOverrides(t *testing.T)
 	writeJVMFixture(t, root, "app/build.gradle.kts", "")
 	writeJVMFixture(t, root, "libs/common/build.gradle.kts", "")
 
-	hierarchies := discoverModuleHierarchies(model.AnalyzeRequest{ProjectPath: root})
+	hierarchies := discoverModuleHierarchies(sdkplugin.AnalyzeRequest{ProjectPath: root})
 	if len(hierarchies) != 1 {
 		t.Fatalf("hierarchies = %+v", hierarchies)
 	}
@@ -93,14 +95,14 @@ func TestAnalyzerTraversesConsumedMavenModules(t *testing.T) {
 	writeJVMFixture(t, root, "shared/src/main/java/com/example/shared/Helper.java", "package com.example.shared;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nclass Helper {}\n")
 	writeJVMFixture(t, root, "unused/src/main/java/com/example/unused/Unused.java", "package com.example.unused;\nimport org.apache.logging.log4j.LogManager;\nclass Unused {}\n")
 
-	g := model.New()
-	reg := model.NewPackageRegistry()
+	g := sdkmodel.New()
+	reg := sdkmodel.NewPackageRegistry()
 	jacksonPURL := "pkg:maven/com.fasterxml.jackson.core/jackson-databind@1"
 	log4jPURL := "pkg:maven/org.apache.logging.log4j/log4j-core@1"
-	jackson := testkit.MustDependencyCoords(t, model.Coordinates{Name: "jackson-databind", Org: "com.fasterxml.jackson.core", Version: "1", Ecosystem: "maven", PURL: jacksonPURL})
-	log4j := testkit.MustDependencyCoords(t, model.Coordinates{Name: "log4j-core", Org: "org.apache.logging.log4j", Version: "1", Ecosystem: "maven", PURL: log4jPURL})
-	reg.Ensure(jacksonPURL).Vulnerabilities = []model.Vulnerability{{ID: "jackson"}}
-	reg.Ensure(log4jPURL).Vulnerabilities = []model.Vulnerability{{ID: "log4j"}}
+	jackson := testkit.MustDependencyCoords(t, sdkmodel.Coordinates{Name: "jackson-databind", Org: "com.fasterxml.jackson.core", Version: "1", Ecosystem: "maven", PURL: jacksonPURL})
+	log4j := testkit.MustDependencyCoords(t, sdkmodel.Coordinates{Name: "log4j-core", Org: "org.apache.logging.log4j", Version: "1", Ecosystem: "maven", PURL: log4jPURL})
+	reg.Ensure(jacksonPURL).Vulnerabilities = []sdkmodel.Vulnerability{{ID: "jackson"}}
+	reg.Ensure(log4jPURL).Vulnerabilities = []sdkmodel.Vulnerability{{ID: "log4j"}}
 	_ = g.AddNode(jackson)
 	_ = g.AddNode(log4j)
 	a := Analyzer{DisableCache: true, Runner: moduleFakeRunner{results: map[string]RunnerResult{
@@ -109,13 +111,13 @@ func TestAnalyzerTraversesConsumedMavenModules(t *testing.T) {
 		shared: {SourceFiles: 1, ImportedArtifacts: map[string]struct{}{"com.fasterxml.jackson.core:jackson-databind": {}}},
 		unused: {SourceFiles: 1, ImportedArtifacts: map[string]struct{}{"org.apache.logging.log4j:log4j-core": {}}},
 	}}}
-	if _, err := a.Analyze(context.Background(), model.AnalyzeRequest{Graph: g, Registry: reg, ProjectPath: root}); err != nil {
+	if _, err := a.Analyze(context.Background(), sdkplugin.AnalyzeRequest{Graph: g, Registry: reg, ProjectPath: root}); err != nil {
 		t.Fatal(err)
 	}
-	if got := reg.Ensure(jacksonPURL).Vulnerabilities[0].Reachability; got == nil || got.Status != model.ReachabilityReachable || got.Hops == nil || *got.Hops != 1 {
+	if got := reg.Ensure(jacksonPURL).Vulnerabilities[0].Reachability; got == nil || got.Status != sdkmodel.ReachabilityReachable || got.Hops == nil || *got.Hops != 1 {
 		t.Fatalf("jackson reachability = %+v, want reachable at hop 1", got)
 	}
-	if got := reg.Ensure(log4jPURL).Vulnerabilities[0].Reachability; got == nil || got.Status != model.ReachabilityUnreachable {
+	if got := reg.Ensure(log4jPURL).Vulnerabilities[0].Reachability; got == nil || got.Status != sdkmodel.ReachabilityUnreachable {
 		t.Fatalf("log4j reachability = %+v, want unreachable", got)
 	}
 }

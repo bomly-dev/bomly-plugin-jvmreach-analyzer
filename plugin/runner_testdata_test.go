@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
-	model "github.com/bomly-dev/bomly-sdk"
 	"github.com/bomly-dev/bomly-sdk/testkit"
+
+	sdkmodel "github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 func jvmProjectFixture(name string) string {
@@ -55,8 +57,8 @@ func TestJVMDynamicImportDetectionFromTestdata(t *testing.T) {
 
 func TestJVMDescriptorAndRunnerResult(t *testing.T) {
 	a := Analyzer{}
-	if err := a.Ready(context.Background(), model.AnalyzeRequest{}); err != nil || a.Descriptor().Name != Name {
-		t.Fatalf("descriptor = %+v ready_err=%v", a.Descriptor(), a.Ready(context.Background(), model.AnalyzeRequest{}))
+	if err := a.Ready(context.Background(), sdkplugin.AnalyzeRequest{}); err != nil || a.Descriptor().Name != Name {
+		t.Fatalf("descriptor = %+v ready_err=%v", a.Descriptor(), a.Ready(context.Background(), sdkplugin.AnalyzeRequest{}))
 	}
 	if !(RunnerResult{SourceFiles: 1}).hasResult() || (RunnerResult{}).hasResult() {
 		t.Fatal("runner result actionability mismatch")
@@ -65,24 +67,24 @@ func TestJVMDescriptorAndRunnerResult(t *testing.T) {
 
 func TestJVMStandaloneApplyRunnerResult(t *testing.T) {
 	const purl = "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
-	g := model.New()
-	pkg := testkit.MustDependencyCoords(t, model.Coordinates{Name: "jackson-databind",
+	g := sdkmodel.New()
+	pkg := testkit.MustDependencyCoords(t, sdkmodel.Coordinates{Name: "jackson-databind",
 		Org:       "com.fasterxml.jackson.core",
-		Ecosystem: model.EcosystemMaven,
+		Ecosystem: sdkmodel.EcosystemMaven,
 		PURL:      purl})
 	if err := g.AddNode(pkg); err != nil {
 		t.Fatal(err)
 	}
-	reg := model.NewPackageRegistry()
-	reg.Ensure(purl).Vulnerabilities = []model.Vulnerability{{ID: "GHSA-1"}}
-	req := model.AnalyzeRequest{Graph: g, Registry: reg}
+	reg := sdkmodel.NewPackageRegistry()
+	reg.Ensure(purl).Vulnerabilities = []sdkmodel.Vulnerability{{ID: "GHSA-1"}}
+	req := sdkplugin.AnalyzeRequest{Graph: g, Registry: reg}
 	root := jvmProjectFixture("dynamic")
-	got := applyRunnerResult(req, model.NewRootAttributor([]string{root}, g), root, RunnerResult{
+	got := applyRunnerResult(req, sdkmodel.NewRootAttributor([]string{root}, g), root, RunnerResult{
 		ImportedArtifacts: map[string]struct{}{"com.fasterxml.jackson.core:jackson-databind": {}},
 		SourceFiles:       1,
 	}, time.Time{})
 	vulns := reg.Ensure(purl).Vulnerabilities
-	if got.reachable != 1 || vulns[0].Reachability == nil || vulns[0].Reachability.Status != model.ReachabilityReachable {
+	if got.reachable != 1 || vulns[0].Reachability == nil || vulns[0].Reachability.Status != sdkmodel.ReachabilityReachable {
 		t.Fatalf("outcome = %+v reachability=%+v", got, vulns[0].Reachability)
 	}
 }

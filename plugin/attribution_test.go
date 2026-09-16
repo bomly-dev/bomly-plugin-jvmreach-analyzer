@@ -5,40 +5,42 @@ import (
 	"testing"
 	"time"
 
-	model "github.com/bomly-dev/bomly-sdk"
 	"github.com/bomly-dev/bomly-sdk/testkit"
+
+	sdkmodel "github.com/bomly-dev/bomly-sdk/model"
+	sdkplugin "github.com/bomly-dev/bomly-sdk/plugin"
 )
 
 // jvmNodeIn builds one JVM dependency node whose declaration site is the build
 // manifest of projectRoot.
-func jvmNodeIn(t *testing.T, group, artifact, version, projectRoot string) *model.DependencyNode {
+func jvmNodeIn(t *testing.T, group, artifact, version, projectRoot string) *sdkmodel.DependencyNode {
 	t.Helper()
-	dep := testkit.MustDependencyCoords(t, model.Coordinates{
+	dep := testkit.MustDependencyCoords(t, sdkmodel.Coordinates{
 		Name: artifact, Org: group, Version: version,
-		Ecosystem: model.EcosystemMaven, PackageManager: "maven",
+		Ecosystem: sdkmodel.EcosystemMaven, PackageManager: "maven",
 	})
 	if projectRoot != "" {
-		dep.Locations = []model.PackageLocation{{RealPath: filepath.Join(projectRoot, "pom.xml")}}
+		dep.Locations = []sdkmodel.PackageLocation{{RealPath: filepath.Join(projectRoot, "pom.xml")}}
 	}
 	dep.PackageRef = dep.NodeID()
 	return dep
 }
 
-func jvmGraph(t *testing.T, nodes []*model.DependencyNode, ids []string) (*model.Graph, *model.PackageRegistry) {
+func jvmGraph(t *testing.T, nodes []*sdkmodel.DependencyNode, ids []string) (*sdkmodel.Graph, *sdkmodel.PackageRegistry) {
 	t.Helper()
-	g := model.New()
-	registry := model.NewPackageRegistry()
+	g := sdkmodel.New()
+	registry := sdkmodel.NewPackageRegistry()
 	for i, node := range nodes {
 		if err := g.AddNode(node); err != nil {
 			t.Fatalf("AddNode(%s): %v", node.NodeID(), err)
 		}
 		pkg := registry.Ensure(node.PackageRef)
-		pkg.Vulnerabilities = append(pkg.Vulnerabilities, model.Vulnerability{ID: ids[i], Source: "osv"})
+		pkg.Vulnerabilities = append(pkg.Vulnerabilities, sdkmodel.Vulnerability{ID: ids[i], Source: "osv"})
 	}
 	return g, registry
 }
 
-func jvmReachability(t *testing.T, registry *model.PackageRegistry, purl string) *model.Reachability {
+func jvmReachability(t *testing.T, registry *sdkmodel.PackageRegistry, purl string) *sdkmodel.Reachability {
 	t.Helper()
 	pkg, ok := registry.Get(purl)
 	if !ok || pkg == nil || len(pkg.Vulnerabilities) == 0 {
@@ -47,7 +49,7 @@ func jvmReachability(t *testing.T, registry *model.PackageRegistry, purl string)
 	return pkg.Vulnerabilities[0].Reachability
 }
 
-func jvmRoots(r *model.Reachability) []string {
+func jvmRoots(r *sdkmodel.Reachability) []string {
 	if r == nil {
 		return nil
 	}
@@ -71,16 +73,16 @@ func TestEvidenceIsKeyedByTheProjectRootThatEstablishedIt(t *testing.T) {
 
 	apiDep := jvmNodeIn(t, "com.fasterxml.jackson.core", "jackson-databind", "2.15.0", apiRoot)
 	webDep := jvmNodeIn(t, "org.apache.logging.log4j", "log4j-core", "2.17.1", webRoot)
-	g, registry := jvmGraph(t, []*model.DependencyNode{apiDep, webDep}, []string{"GHSA-1", "GHSA-2"})
-	req := model.AnalyzeRequest{Graph: g, Registry: registry}
+	g, registry := jvmGraph(t, []*sdkmodel.DependencyNode{apiDep, webDep}, []string{"GHSA-1", "GHSA-2"})
+	req := sdkplugin.AnalyzeRequest{Graph: g, Registry: registry}
 
-	attributor := model.NewRootAttributor([]string{apiRoot, webRoot}, g)
+	attributor := sdkmodel.NewRootAttributor([]string{apiRoot, webRoot}, g)
 	for _, root := range []string{apiRoot, webRoot} {
 		applyImportedArtifactSeeds(req, attributor, root, nil, false, time.Time{})
 	}
 
 	for _, tc := range []struct {
-		dep  *model.DependencyNode
+		dep  *sdkmodel.DependencyNode
 		want string
 	}{{apiDep, apiRoot}, {webDep, webRoot}} {
 		roots := jvmRoots(jvmReachability(t, registry, tc.dep.PackageRef))
@@ -103,18 +105,18 @@ func TestEvidenceNeverNamesAnOccurrenceNode(t *testing.T) {
 
 	main := jvmNodeIn(t, "com.fasterxml.jackson.core", "jackson-databind", "2.15.0", root)
 	tests := jvmNodeIn(t, "com.fasterxml.jackson.core", "jackson-databind:tests", "2.15.0", root)
-	g, registry := jvmGraph(t, []*model.DependencyNode{main, tests}, []string{"GHSA-1", "GHSA-1"})
+	g, registry := jvmGraph(t, []*sdkmodel.DependencyNode{main, tests}, []string{"GHSA-1", "GHSA-1"})
 
-	applyImportedArtifactSeeds(model.AnalyzeRequest{Graph: g, Registry: registry},
-		model.NewRootAttributor([]string{root}, g), root,
+	applyImportedArtifactSeeds(sdkplugin.AnalyzeRequest{Graph: g, Registry: registry},
+		sdkmodel.NewRootAttributor([]string{root}, g), root,
 		map[string]int{canonicalCoord("com.fasterxml.jackson.core", "jackson-databind"): 0}, false, time.Time{})
 
-	for _, dep := range []*model.DependencyNode{main, tests} {
+	for _, dep := range []*sdkmodel.DependencyNode{main, tests} {
 		evidence := jvmReachability(t, registry, dep.PackageRef).Evidence
 		if len(evidence) != 1 {
 			t.Fatalf("%s evidence = %d entries, want 1", dep.Name, len(evidence))
 		}
-		if evidence[0].Status != model.ReachabilityReachable {
+		if evidence[0].Status != sdkmodel.ReachabilityReachable {
 			t.Errorf("%s status = %q, want reachable: the classifier variant shares the seed key",
 				dep.Name, evidence[0].Status)
 		}
@@ -136,13 +138,13 @@ func TestFailedProjectRootStillContributesUnknownEvidence(t *testing.T) {
 	webRoot := filepath.Join(workspace, "web")
 
 	dep := jvmNodeIn(t, "org.apache.logging.log4j", "log4j-core", "2.17.1", apiRoot)
-	dep.Locations = append(dep.Locations, model.PackageLocation{
+	dep.Locations = append(dep.Locations, sdkmodel.PackageLocation{
 		RealPath: filepath.Join(webRoot, "pom.xml"),
 	})
-	g, registry := jvmGraph(t, []*model.DependencyNode{dep}, []string{"GHSA-1"})
-	req := model.AnalyzeRequest{Graph: g, Registry: registry}
+	g, registry := jvmGraph(t, []*sdkmodel.DependencyNode{dep}, []string{"GHSA-1"})
+	req := sdkplugin.AnalyzeRequest{Graph: g, Registry: registry}
 
-	attributor := model.NewRootAttributor([]string{apiRoot, webRoot}, g)
+	attributor := sdkmodel.NewRootAttributor([]string{apiRoot, webRoot}, g)
 	applyImportedArtifactSeeds(req, attributor, apiRoot, nil, false, time.Time{})
 	annotateProjectUnknown(req, attributor, webRoot, "missing-toolchain", time.Time{})
 
@@ -150,7 +152,7 @@ func TestFailedProjectRootStillContributesUnknownEvidence(t *testing.T) {
 	if len(r.Evidence) != 2 {
 		t.Fatalf("evidence = %d entries (%v), want one per project root", len(r.Evidence), jvmRoots(r))
 	}
-	if r.Status != model.ReachabilityUnknown {
+	if r.Status != sdkmodel.ReachabilityUnknown {
 		t.Errorf("summary = %q, want unknown: one root was never analyzed", r.Status)
 	}
 	if r.Reason == "" {
@@ -168,10 +170,10 @@ func TestSiteOutsideEveryAnalyzedRootIsNotAbsence(t *testing.T) {
 	m2 := filepath.Join(t.TempDir(), ".m2", "repository")
 
 	dep := jvmNodeIn(t, "org.apache.logging.log4j", "log4j-core", "2.17.1", m2)
-	g, registry := jvmGraph(t, []*model.DependencyNode{dep}, []string{"GHSA-1"})
+	g, registry := jvmGraph(t, []*sdkmodel.DependencyNode{dep}, []string{"GHSA-1"})
 
-	applyImportedArtifactSeeds(model.AnalyzeRequest{Graph: g, Registry: registry},
-		model.NewRootAttributor([]string{root}, g), root, nil, false, time.Time{})
+	applyImportedArtifactSeeds(sdkplugin.AnalyzeRequest{Graph: g, Registry: registry},
+		sdkmodel.NewRootAttributor([]string{root}, g), root, nil, false, time.Time{})
 
 	r := jvmReachability(t, registry, dep.PackageRef)
 	if r == nil || len(r.Evidence) != 1 {
@@ -190,11 +192,11 @@ func TestSiteOutsideEveryAnalyzedRootIsNotAbsence(t *testing.T) {
 func TestDeclaredRootsAreOnlyTrustedWhenTheyShareOurVocabulary(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "api")
 	dep := jvmNodeIn(t, "org.apache.logging.log4j", "log4j-core", "2.17.1", "")
-	dep.Locations = []model.PackageLocation{{ModuleRoot: "modules/api"}}
-	g, registry := jvmGraph(t, []*model.DependencyNode{dep}, []string{"GHSA-1"})
+	dep.Locations = []sdkmodel.PackageLocation{{ModuleRoot: "modules/api"}}
+	g, registry := jvmGraph(t, []*sdkmodel.DependencyNode{dep}, []string{"GHSA-1"})
 
-	applyImportedArtifactSeeds(model.AnalyzeRequest{Graph: g, Registry: registry},
-		model.NewRootAttributor([]string{root}, g), root, nil, false, time.Time{})
+	applyImportedArtifactSeeds(sdkplugin.AnalyzeRequest{Graph: g, Registry: registry},
+		sdkmodel.NewRootAttributor([]string{root}, g), root, nil, false, time.Time{})
 
 	if r := jvmReachability(t, registry, dep.PackageRef); r == nil || len(r.Evidence) == 0 {
 		t.Fatal("evidence was dropped for a root vocabulary mismatch; the finding is lost")
@@ -205,22 +207,22 @@ func TestDeclaredRootsAreOnlyTrustedWhenTheyShareOurVocabulary(t *testing.T) {
 // halves of the rule hold independently of a full analysis pass.
 func TestAttributorCalibratesOnOverlap(t *testing.T) {
 	node := jvmNodeIn(t, "org.apache.logging.log4j", "log4j-core", "2.17.1", "")
-	node.Locations = []model.PackageLocation{{ModuleRoot: "/ws/api"}}
-	g := model.New()
+	node.Locations = []sdkmodel.PackageLocation{{ModuleRoot: "/ws/api"}}
+	g := sdkmodel.New()
 	if err := g.AddNode(node); err != nil {
 		t.Fatal(err)
 	}
 
-	shared := model.NewRootAttributor([]string{"/ws/api", "/ws/web"}, g)
-	if got := shared.Attribute(node, "/ws/api"); got != model.AttributedToSite {
+	shared := sdkmodel.NewRootAttributor([]string{"/ws/api", "/ws/web"}, g)
+	if got := shared.Attribute(node, "/ws/api"); got != sdkmodel.AttributedToSite {
 		t.Errorf("attribute(own root) = %v, want attributed-to-site", got)
 	}
-	if got := shared.Attribute(node, "/ws/web"); got != model.AttributedElsewhere {
+	if got := shared.Attribute(node, "/ws/web"); got != sdkmodel.AttributedElsewhere {
 		t.Errorf("attribute(other root) = %v, want attributed-elsewhere", got)
 	}
 
-	foreign := model.NewRootAttributor([]string{"/other/one"}, g)
-	if got := foreign.Attribute(node, "/other/one"); got != model.AttributedToRootOnly {
+	foreign := sdkmodel.NewRootAttributor([]string{"/other/one"}, g)
+	if got := foreign.Attribute(node, "/other/one"); got != sdkmodel.AttributedToRootOnly {
 		t.Errorf("attribute under a foreign vocabulary = %v, want attributed-to-root-only", got)
 	}
 }
