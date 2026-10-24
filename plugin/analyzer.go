@@ -625,18 +625,22 @@ func annotateAllUnknown(req sdkplugin.AnalyzeRequest, reason string, now time.Ti
 	}
 }
 
-// pathContainsRoot reports whether path lies under root. Its only remaining
-// callers are in discover.go: attribution asks the SDK's RootAttributor this
-// question now, so do not reach for this helper to decide what a site says
-// about a module root.
+// pathContainsRoot reports whether path is root or lies under it. Its only
+// remaining callers are in discover.go: attribution asks the SDK's
+// RootAttributor this question now, so do not reach for this helper to decide
+// what a site says about a module root.
+//
+// path/filepath owns both halves of the question: Rel says where path sits
+// relative to root, and IsLocal says whether that relative path stays inside
+// it. IsLocal tests for a ".." path element, not a ".." string prefix, so a
+// directory named "..data" -- a Kubernetes Secret or ConfigMap mount -- is
+// inside the root that contains it (issue #3).
 func pathContainsRoot(path, root string) bool {
-	cleanPath := filepath.Clean(path)
-	cleanRoot := filepath.Clean(root)
-	rel, err := filepath.Rel(cleanRoot, cleanPath)
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
 	if err != nil {
 		return false
 	}
-	return !strings.HasPrefix(rel, "..")
+	return filepath.IsLocal(rel)
 }
 
 func failureReason(err error) string {
