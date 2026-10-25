@@ -17,7 +17,7 @@ disk under `<user cache dir>/bomly/analyzers/jvmreach/` (24h TTL).
 - **Ecosystems:** Maven, Scala (Maven, Gradle, sbt builds)
 - **Languages:** Java, Kotlin, Scala
 - **Tiers:** package
-- **Requires:** nothing besides the sources — no JVM needed. The analyzer declares the pipeline data it needs -- a source tree, a dependency graph, and vulnerability records from a matcher -- so Bomly skips it, with a warning, when a scan cannot supply them.
+- **Requires:** a source tree, a dependency graph, and vulnerability records from a matcher; Bomly skips the analyzer, with a warning, when a scan cannot supply them. No JVM or build tool is needed.
 
 ## Access
 
@@ -25,7 +25,8 @@ disk under `<user cache dir>/bomly/analyzers/jvmreach/` (24h TTL).
 
 | Access | Why |
 | --- | --- |
-| Reads `project` | The Java, Kotlin and Scala sources it scans for imports, and the build files (`pom.xml`, `settings.gradle[.kts]`, `build.gradle[.kts]`, `build.sbt`) that mark project roots and define modules. Finding the enclosing multi-module build walks upward from each manifest, reading `pom.xml` and `settings.gradle` in parent directories |
+| Reads `project` | The Java, Kotlin and Scala sources it scans for imports, and the build files (`pom.xml`, `settings.gradle[.kts]`, `build.gradle[.kts]`, `build.sbt`) that mark project roots and define modules |
+| Reads `any` | Finding the enclosing multi-module build walks upward from each manifest to the filesystem root, reading `pom.xml` and `settings.gradle` in parent directories; a parent build found there becomes the root whose modules are scanned |
 | Reads and writes `cache` | The result cache under `<user cache dir>/bomly/analyzers/jvmreach/` |
 | Environment `HOME`, `XDG_CACHE_HOME`, `LocalAppData` | Locating the user cache directory (`os.UserCacheDir`: `XDG_CACHE_HOME` or `HOME` on Linux, `HOME` on macOS, `LocalAppData` on Windows) |
 
