@@ -55,6 +55,14 @@ func (a Analyzer) Descriptor() sdkplugin.AnalyzerDescriptor {
 		},
 		SupportedTiers: []sdkmodel.ReachabilityTier{sdkmodel.TierPackage},
 		Capabilities:   []string{sdkplugin.CapabilityPackageUpdates},
+		// jvmreach reads Java/Kotlin/Scala source, and only annotates
+		// advisories a matcher already put in the registry for JVM packages
+		// in the graph.
+		Requires: sdkplugin.Requirements{
+			sdkplugin.RequirementSourceTree,
+			sdkplugin.RequirementDependencyGraph,
+			sdkplugin.RequirementVulnerabilityRecords,
+		},
 	}
 }
 

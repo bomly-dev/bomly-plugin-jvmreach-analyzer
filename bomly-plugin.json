@@ -15,5 +15,20 @@
   },
   "description": "JVM reachability analyzer for Bomly: scans Java/Kotlin/Scala sources in Maven, Gradle, and sbt projects to mark which vulnerable artifacts are actually imported (package tier).",
   "homepage": "https://github.com/bomly-dev/bomly-plugin-jvmreach-analyzer",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "access": {
+    "filesystemRead": [
+      "any",
+      "cache",
+      "project"
+    ],
+    "filesystemWrite": [
+      "cache"
+    ],
+    "environment": [
+      "HOME",
+      "LocalAppData",
+      "XDG_CACHE_HOME"
+    ]
+  }
 }
